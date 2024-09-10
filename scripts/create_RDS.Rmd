@@ -1,0 +1,108 @@
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r load_packages, echo=FALSE, message=FALSE, warning=FALSE}
+library(patchwork)
+library(tidyverse)
+library(SeuratObject)
+library(Seurat)
+```
+
+```{r load_packages, echo=FALSE, message=FALSE, warning=FALSE}
+library(dplyr)
+library(devtools)
+library(ggplot2)
+library(cowplot)
+```
+
+
+```{r}
+library(Seurat)
+#library(SeuratData)
+library(SeuratDisk)
+library(scRNAseq)
+```
+
+
+
+```{r load data from SoupX, echo=FALSE, warnings=FALSE, include=FALSE, message=FALSE}
+
+#set count mats
+counts_mat_angio_KO <- Read10X(data.dir="/projectnb/setagrp/atmadsen/Seta_aorticAneurysm_snRNA/results/soupX_ag_KO_filt/")
+counts_mat_angio_WT <- Read10X(data.dir="/projectnb/setagrp/atmadsen/Seta_aorticAneurysm_snRNA/results/soupX_ag_WT_filt/")
+counts_mat_ctrl_KO <- Read10X(data.dir="/projectnb/setagrp/atmadsen/Seta_aorticAneurysm_snRNA/results/soupX_ctrl_KO_filt/")
+counts_mat_ctrl_WT <- Read10X(data.dir="/projectnb/setagrp/atmadsen/Seta_aorticAneurysm_snRNA/results/soupX_ctrl_WT_filt/")
+```
+
+
+```{r, create suerat objs for Seta data}
+
+#create seurat obj from e/a sample counts mat
+counts_angio_KO <- CreateSeuratObject(counts = counts_mat_angio_KO,
+                           min.cells = 3, min.features = 200, project = "TY_SF_Angiotensin_II_KO")
+
+counts_angio_WT <- CreateSeuratObject(counts = counts_mat_angio_WT,
+                           min.cells = 3, min.features = 200, project = "TY_SF_Angiotensin_II_WT")
+
+counts_ctrl_KO <- CreateSeuratObject(counts = counts_mat_ctrl_KO,
+                           min.cells = 3, min.features = 200, project = "TY_SF_KO")
+
+counts_ctrl_WT <- CreateSeuratObject(counts = counts_mat_ctrl_WT,
+                           min.cells = 3, min.features = 200, project = "TY_SF_WT")
+
+```
+
+
+```{r, find mito content Seta data}
+
+counts_angio_KO[["percent.mt"]] <- PercentageFeatureSet(counts_angio_KO, pattern = "^mt-")
+
+counts_angio_WT[["percent.mt"]] <- PercentageFeatureSet(counts_angio_WT, pattern = "^mt-")
+
+counts_ctrl_KO[["percent.mt"]] <- PercentageFeatureSet(counts_ctrl_KO, pattern = "^mt-")
+
+counts_ctrl_WT[["percent.mt"]] <- PercentageFeatureSet(counts_ctrl_WT, pattern = "^mt-")
+
+```
+
+
+```{r, save the data objs to files}
+
+datasets <- list(
+  tabula_data = tabula_data, 
+  counts_angio_KO = counts_angio_KO, 
+  counts_angio_WT = counts_angio_WT, 
+  counts_ctrl_KO = counts_ctrl_KO, 
+  counts_ctrl_WT = counts_ctrl_WT
+)
+
+for (name in names(datasets)) {
+  saveRDS(datasets[[name]], file = paste0(name, "_Seuratobject.rds"))
+}
+
+```
+
+
+
+```{r, need to make counts mat annotated an AnnData obj}
+
+counts_mat_type_annotated
+
+counts_mat_type_annotated[["RNA"]] <- as(counts_mat_type_annotated[["RNA"]], "Assay")   #convert to v3 assay
+
+SaveH5Seurat(counts_mat_type_annotated, filename = "counts.h5Seurat", overwrite = T)
+Convert("counts.h5Seurat", dest = "h5ad")
+
+```
+
+
+```{r}
+
+seurat_write_h5(counts_mat_type_annotated, file = "counts_annotated.h5", assay.name = 'RNA')
+
+```
+

@@ -1,0 +1,376 @@
+
+
+```{r, load packages, message=FALSE, warning=FALSE}
+
+library(patchwork)
+library(tidyverse)
+library(SeuratObject)
+library(Seurat)  
+library(celldex)
+library(dplyr)
+library(stringr)
+library(devtools)
+library(ggplot2)
+library(ggpubr)   
+library(cowplot)  
+library(SeuratWrappers)
+library(fgsea)             
+library(data.table)
+library(gridExtra)
+library(grid)
+library(kableExtra)
+library(openxlsx)
+library(SingleCellExperiment)
+library(edgeR)
+library(Matrix)
+library(reshape2)
+library(S4Vectors)
+library(pheatmap)
+library(apeglm)
+library(png)
+library(DESeq2)
+library(RColorBrewer)
+library(ggrepel)
+
+```
+
+
+```{r, read in rds file}
+
+counts_DE <- readRDS("/projectnb/setagrp/atmadsen/Seta_aorticAneurysm_snRNA/scripts/Annotated_Seuratobject.rds")
+
+counts_DE
+```
+
+```{r, make sample_annotations col}
+
+counts_DE$sample.cluster <- as.factor(paste(counts_DE$annotations, counts_DE$sample, sep = "_"))
+
+counts_DE@meta.data
+
+```
+
+
+```{r}
+
+Idents(object = counts_DE) <- "sample.cluster"
+
+
+table(Idents(counts_DE))
+
+```
+
+```{r, do DE across all idents per sample-- use this for heatmaps}
+
+#OLD FILTER: filter(p_val_adj <= 0.25, abs(avg_log2FC) >= 2)
+
+#Volc10/20 files: filter(p_val <= 0.05, abs(avg_log2FC) >= 0.6)  #remove arrange by pval adj
+
+data.sample1 <- FindMarkers(counts_DE, ident.1 = "VSMC III_ctrlWT", ident.2 = "VSMC III_ctrlKO", verbose = FALSE)
+data.sample1 <- dplyr::arrange(data.sample1, desc(avg_log2FC), p_val) %>% filter(p_val <= 0.05, abs(avg_log2FC) >= 0.6)
+data.sample1$gene <- rownames(data.sample1)
+
+data.sample2 <- FindMarkers(counts_DE, ident.1 = "VSMC III_angioWT", ident.2 = "VSMC III_angioKO", verbose = FALSE)
+data.sample2 <- dplyr::arrange(data.sample2, desc(avg_log2FC), p_val) %>% filter(p_val <= 0.05, abs(avg_log2FC) >= 0.6)
+data.sample2$gene <- rownames(data.sample2)
+
+data.sample3 <- FindMarkers(counts_DE, ident.1 = "VSMC III_ctrlWT", ident.2 = "VSMC III_angioWT", verbose = FALSE)
+data.sample3 <- dplyr::arrange(data.sample3, desc(avg_log2FC), p_val) %>% filter(p_val <= 0.05, abs(avg_log2FC) >= 0.6)
+data.sample3$gene <- rownames(data.sample3)
+
+data.sample4 <- FindMarkers(counts_DE, ident.1 = "VSMC III_ctrlKO", ident.2 = "VSMC III_angioKO", verbose = FALSE)
+data.sample4 <- dplyr::arrange(data.sample4, desc(avg_log2FC), p_val) %>% filter(p_val <= 0.05, abs(avg_log2FC) >= 0.6)
+data.sample4$gene <- rownames(data.sample4)
+
+#sheets <- list("WT v Glrx KO" = data.sample1, 
+               #"AngioII WT v AngioII Glrx KO" = data.sample2, 
+               #"WT v AngioII WT" = data.sample3, 
+               #"Glrx KO v AngioII Glrx KO" = data.sample4)
+#write.xlsx(sheets, file = 'Macrophages II_DEcomparisonsPadj_0.25_LFC_2.xlsx', rowNames=T)
+```
+
+```{r}
+
+data.sample1
+
+```
+
+
+```{r, create the heatmap gene list- top 5 or 10}
+
+data.sample1
+genes1 <- rbind(head(data.sample1, n = 5), tail(data.sample1, n = 5))
+
+data.sample2
+genes2 <- rbind(head(data.sample2, n = 20), tail(data.sample2, n = 20))
+
+data.sample3
+genes3 <- rbind(head(data.sample3, n = 5), tail(data.sample3, n = 5))
+
+data.sample4
+genes4 <- rbind(head(data.sample4, n = 5), tail(data.sample4, n = 5))
+
+heatmap_genes <- rbind(genes1, genes2, genes3, genes4)
+heatmap_genes <- rownames(heatmap_genes)
+heatmap_genes
+
+```
+
+
+```{r, subset for VSMC I}
+
+data_heatmap <- subset(x = counts_DE, idents = c("VSMC III_angioWT", "VSMC III_angioKO"))
+data_heatmap
+
+```
+
+
+```{r, make heatmap per cluster}
+
+scaled <- DoHeatmap(data_heatmap, features = rownames(genes2), size = 4)
+
+data_scaled <- ScaleData(data_heatmap, features = rownames(genes3))
+rescaled <- DoHeatmap(data_scaled, features = rownames(genes3), slot = "data", size = 2.5)
+
+scaled
+rescaled
+
+#ggsave("heatmap_VSMC II_Volc20_GlrxKOvAngIIGlrxKO.png", plot = scaled, width = 14, height = 14, dpi = 300)
+
+vln <- VlnPlot(data_heatmap, features = rownames(genes1), ncol = 2)
+vln
+
+#ggsave("Vln_VSMC I_Volc20_WTvGlrxKO.png", plot = vln, width = 14, height = 24, dpi = 300)
+
+```
+
+
+
+```{r, DEG for C0 WT v. Glrx KO}
+
+#need to change ident before you do this to sample.cluster
+
+data.glrx <- FindMarkers(counts_DE, ident.1 = "Macrophages II_ctrlWT", ident.2 = "Macrophages II_ctrlKO", verbose = FALSE)
+data.glrx <- dplyr::arrange(data.glrx, desc(avg_log2FC))
+data.glrx
+
+```
+
+
+```{r, DEG for C0 angio WT v. angio Glrx KO}
+
+data.angioI <- FindMarkers(counts_DE, ident.1 = "VSMC VI_angioWT", ident.2 = "VSMC VI_angioKO", verbose = FALSE)
+data.angioI <- dplyr::arrange(data.angioI, desc(avg_log2FC))
+data.angioI
+
+```
+
+
+```{r, DEG for C0 WT v. angio WT}
+
+data.angioII <- FindMarkers(counts_DE, ident.1 = "Macrophages II_ctrlWT", ident.2 = "Macrophages II_angioWT", verbose = FALSE)
+data.angioII <- dplyr::arrange(data.angioII, desc(avg_log2FC))
+data.angioII
+
+```
+
+
+```{r, DEG for C0 KO v. angio Glrx KO}
+
+data.KO <- FindMarkers(counts_DE, ident.1 = "Macrophages II_ctrlKO", ident.2 = "Macrophages II_angioKO", verbose = FALSE)
+data.KO <- dplyr::arrange(data.KO, p_val_adj)
+data.KO
+
+```
+
+
+```{r, make ranked list for gsea}
+#USE THIS CELL
+
+rankings <- sign(data.angioI$avg_log2FC) * (-log10(data.angioI$p_val))
+#can try just LFC ranking
+  
+  names(rankings) <- rownames(data.angioI)
+  
+  # Write the ranked list to a CSV file
+  rankings_df <- data.frame(Gene = names(rankings), Ranking = rankings)
+  write.table(rankings_df, file = "ranked_list_Macrophages_II_AngIIWTvAngIIGlrxKO.csv", sep = ",", row.names = FALSE, quote = FALSE)
+  
+  plot(rankings, main = paste("Rankings for Macrophages I Glrx KO v AngII GlrxKO"))
+
+```
+
+
+```{r, prep for volc plot}
+
+df <- data.angioI
+
+# Add a column to the data frame to specify if they are UP- or DOWN- regulated (log2fc respectively positive or negative)
+df$diffexpressed <- "NO"
+
+# if log2Foldchange > 0.6 and pvalue < 0.05, set as "UP"
+df$diffexpressed[df$avg_log2FC > 0.6 & df$p_val < 0.05] <- "UP"
+
+# if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"
+df$diffexpressed[df$avg_log2FC < -0.6 & df$p_val < 0.05] <- "DOWN"
+
+#add gene col
+df$gene <- rownames(df)
+
+# Explore a bit
+head(df[order(abs((df$avg_log2FC)), decreasing = TRUE), ], n = 20)
+
+```
+
+
+```{r, plot volcano data}
+
+ggplot(data = df, aes(x = avg_log2FC, y = -log10(p_val), col = diffexpressed)) +
+  geom_vline(xintercept = c(-0.6, 0.6), col = "gray", linetype = 'dashed') +
+  geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed') +
+  geom_point(size = 2) +
+  scale_color_manual(values = c("#00AFBB", "grey", "#FFDB6D"), 
+                     labels = c("Downregulated", "Not significant", "Upregulated"))
+
+```
+
+##TRY ENHANCE VOLC PLOT
+```{r}
+library(EnhancedVolcano)
+
+plot <- EnhancedVolcano(df,
+    lab = rownames(df),
+    x = 'avg_log2FC',
+    y = 'p_val',
+    title = 'VSMC VI AngII WT vs AngII Glrx KO',
+    subtitle = bquote(italic("Pval < 0.05, LFC > 1.5")),
+    col = c("grey30", "forestgreen", "royalblue", "red2"),
+    pCutoff = 0.05,
+    FCcutoff = 1.5)
+
+ggsave("new_Volc_VSMCVI_AngIIWTvAngIIGlrxKO.png", plot, width = 10, height = 6, units = "in")
+
+```
+
+
+
+```{r, NO LABELS}
+
+#filter sig genes
+significant_genes <- df %>% 
+  filter(p_val_adj <= 0.25 & abs(avg_log2FC) >= 1.5) %>% 
+  arrange(p_val_adj, desc(abs(avg_log2FC)))
+
+#top n genes
+top_genes <- head(significant_genes$gene, 10)
+
+#label only the top 20 genes
+#df$delabel <- ifelse(df$gene %in% top_genes, df$gene, NA)
+
+ggplot(data = df, aes(x = avg_log2FC, y = -log10(p_val), col = diffexpressed)) +
+  geom_vline(xintercept = c(-0.6, 0.6), col = "gray", linetype = 'dashed') +
+  geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed') + 
+  geom_point(size = 1) + 
+  scale_color_manual(values = c("#00AFBB", "grey", "#bb0c00"), 
+                     labels = c("Downregulated", "Not significant", "Upregulated")) + 
+  coord_cartesian(ylim = c(0, 6), xlim = c(-8, 7)) + 
+  labs(color = 'Expression Level', 
+       x = expression("log"[2]*"FC"), y = expression("-log"[10]*"p-value")) + 
+  scale_x_continuous(breaks = seq(-10, 10, 2)) + 
+  ggtitle('Macrophages II AngII WT vs AngII Glrx KO')
+
+```
+
+```{r, new labels-- padj < 0.25, LFC > 1.5}
+
+#filter sig genes
+significant_genes <- df %>% 
+  filter(p_val_adj <= 0.25 & abs(avg_log2FC) >= 1.5) %>% 
+  arrange(p_val_adj, desc(abs(avg_log2FC)))
+
+#top n genes
+top_genes <- head(significant_genes$gene, 10)
+
+#label only the top 20 genes
+df$delabel <- ifelse(df$gene %in% top_genes, df$gene, NA)
+
+ggplot(data = df, aes(x = avg_log2FC, y = -log10(p_val), col = diffexpressed, label = delabel)) +
+  geom_vline(xintercept = c(-0.6, 0.6), col = "gray", linetype = 'dashed') +
+  geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed') + 
+  geom_point(size = 1) + 
+  scale_color_manual(values = c("#00AFBB", "grey", "#bb0c00"), 
+                     labels = c("Downregulated", "Not significant", "Upregulated")) + 
+  coord_cartesian(ylim = c(0, 200), xlim = c(-8, 8)) + 
+  labs(color = 'Expression Level', 
+       x = expression("log"[2]*"FC"), y = expression("-log"[10]*"p-value")) + 
+  scale_x_continuous(breaks = seq(-10, 10, 2)) + 
+  ggtitle('VSMC I Glrx KO vs AngII Glrx KO') + 
+  geom_label_repel(max.overlaps = Inf, box.padding = 0.5, point.padding = 0.5, segment.color = 'grey50', show.legend = FALSE)
+
+```
+
+
+#For heatmaps per cluster per condition:
+
+
+```{r}
+Cells(counts_DE)
+```
+
+
+
+```{r, produce data per cluster and condition}
+
+data.WTvKO <- FindMarkers(counts_DE, ident.1 = "VSMC I_ctrlWT", ident.2 = "VSMC I_ctrlKO", verbose = FALSE)
+data.WTvKO <- dplyr::arrange(data.WTvKO, desc(avg_log2FC))
+data.WTvKO$gene <- rownames(data.WTvKO)
+data.WTvKO <- head(data.WTvKO$gene, n = 10)
+data.WTvKO
+
+data.AngioWTvAngioKO <- FindMarkers(counts_DE, ident.1 = "VSMC I_angioWT", ident.2 = "VSMC I_angioKO", verbose = FALSE)
+data.AngioWTvAngioKO <- dplyr::arrange(data.AngioWTvAngioKO, desc(avg_log2FC))
+data.AngioWTvAngioKO$gene <- rownames(data.AngioWTvAngioKO)
+data.AngioWTvAngioKO <- head(data.AngioWTvAngioKO$gene, n = 10)
+data.AngioWTvAngioKO
+
+data.WTvAngioWT <- FindMarkers(counts_DE, ident.1 = "VSMC I_ctrlWT", ident.2 = "VSMC I_ctrlKO", verbose = FALSE)
+data.WTvAngioWT <- dplyr::arrange(data.WTvAngioWT, desc(avg_log2FC))
+data.WTvAngioWT$gene <- rownames(data.WTvAngioWT)
+data.WTvAngioWT <- head(data.WTvAngioWT$gene, n = 10)
+data.WTvAngioWT
+
+data.KOvAngioKO <- FindMarkers(counts_DE, ident.1 = "VSMC I_ctrlKO", ident.2 = "VSMC I_angioKO", verbose = FALSE)
+data.KOvAngioKO <- dplyr::arrange(data.KOvAngioKO, desc(avg_log2FC))
+data.KOvAngioKO$gene <- rownames(data.KOvAngioKO)
+data.KOvAngioKO <- head(data.KOvAngioKO$gene, n = 10)
+data.KOvAngioKO
+
+```
+
+
+```{r, make heatmap of top 10 DEGs per clusters}
+
+vsmcs <- subset(x = counts_DE, idents = c("VSMC I_ctrlWT", "VSMC I_ctrlKO", "VSMC I_angioWT", "VSMC I_angioKO"))
+
+vsmc_features <- c(data.WTvKO, data.AngioWTvAngioKO, data.WTvAngioWT, data.KOvAngioKO)
+vsmc_features <- unique(vsmc_features)
+vsmc_features
+
+vsmc_features <- c(head(all_clusters$`0`$gene, n = 10), 
+                   head(all_clusters$`1`$gene, n = 10), 
+                   head(all_clusters$`2`$gene, n = 10), 
+                   head(all_clusters$`3`$gene, n = 10), 
+                   head(all_clusters$`5`$gene, n = 10), 
+                   head(all_clusters$`8`$gene, n = 10))
+
+heatmap_plot <- DoHeatmap(vsmcs, features = vsmc_features, size = 3, angle = 30, draw.lines = T)
+
+heatmap_plot
+
+ggsave("heatmap_VSMCs.png", plot = heatmap_plot, width = 14, height = 14, dpi = 300)
+
+```
+
+
+
+

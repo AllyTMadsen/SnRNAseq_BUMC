@@ -1,0 +1,709 @@
+
+
+```{r load_packages, echo=FALSE, message=FALSE, warning=FALSE}
+library(patchwork)
+library(tidyverse)
+library(SeuratObject)
+library(Seurat)  
+library(dplyr)
+library(ggplot2)
+library(ggpubr)   
+library(cowplot)   
+library(SeuratWrappers)
+library(data.table)
+library(monocle3)
+library(ggrepel)
+```
+
+
+```{r, load in annotated seurat data}
+
+annotated_counts <- readRDS(file = "/projectnb/setagrp/atmadsen/Seta_aorticAneurysm_snRNA/scripts/Annotated_Seuratobject.rds")
+
+```
+
+```{r}
+
+annotated_counts@meta.data
+
+```
+
+
+
+```{r, cell type proportion plots for angiotensin treatment}
+
+n_cells <- FetchData(annotated_counts, 
+                     vars = c("annotations", "treatment")) %>%
+        dplyr::count(annotations, treatment)
+
+n_cells <- n_cells %>%
+  group_by(treatment) %>%
+  mutate(percentage = n / sum(n) * 100)
+
+ggplot(n_cells, aes(x=annotations, y=n, fill=treatment)) +
+    geom_bar(position=position_dodge(), stat="identity") +
+    geom_text(aes(label=n), vjust = -.2, position=position_dodge(1), size = 3) +
+    labs(x = "Identity", y = "Number of Cells", title = "Number of Cells by Identity and Angio II Treatment") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#stacked plot
+ggplot(n_cells, aes(x = annotations, y = n, fill = treatment)) +
+  geom_bar(stat = "identity", position = "stack") +  
+  geom_text(aes(label = sprintf("%.1f%%", percentage)), vjust = -0.2, position = position_stack(vjust = 0.5), size = 3, color = "black") +
+  labs(x = "Identity", y = "Number of Cells", title = "Number of Cells by Identity and Angio II Treatment") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+```{r, cell type proportion plots for KO status}
+
+n_cells <- FetchData(annotated_counts, 
+                     vars = c("annotations", "type")) %>%
+        dplyr::count(annotations, type)
+
+n_cells <- n_cells %>%
+  group_by(type) %>%
+  mutate(percentage = n / sum(n) * 100)
+
+
+ggplot(n_cells, aes(x=annotations, y=n, fill=type)) +
+    geom_bar(position=position_dodge(), stat="identity") +
+    geom_text(aes(label=n), vjust = -.2, position=position_dodge(1), size = 3) +
+    labs(x = "Identity", y = "Number of Cells", title = "Number of Cells by Identity and KO status") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#stacked plot
+ggplot(n_cells, aes(x = annotations, y = n, fill = type)) +
+  geom_bar(stat = "identity", position = "stack") +  
+  geom_text(aes(label = sprintf("%.1f%%", percentage)), vjust = -0.2, position = position_stack(vjust = 0.5), size = 3, color = "black") +
+  labs(x = "Identity", y = "Number of Cells", title = "Number of Cells by Identity and KO status") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r, cell type proportion plots by sample}
+
+n_cells <- FetchData(annotated_counts, 
+                     vars = c("annotations", "sample")) %>%
+        dplyr::count(annotations, sample)
+
+n_cells <- n_cells %>%
+  group_by(sample) %>%
+  mutate(percentage = n / sum(n) * 100)
+
+
+ggplot(n_cells, aes(x=annotations, y=n, fill= sample)) +
+    geom_bar(position=position_dodge(), stat="identity") +
+    geom_text(aes(label=n), vjust = -.2, position=position_dodge(1), size = 3) +
+    labs(x = "Identity", y = "Number of Cells", title = "Number of Cells by Identity and Sample") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#stacked plot
+ggplot(n_cells, aes(x = annotations, y = n, fill = sample)) +
+  geom_bar(stat = "identity", position = "stack") +  
+  geom_text(aes(label = sprintf("%.1f%%", percentage)), vjust = -0.2, position = position_stack(vjust = 0.2), size = 2, color = "black") +
+  labs(x = "Identity", y = "Number of Cells", title = "Number of Cells by Identity and Sample") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+
+```{r, plot for # of cells in each cluster by treatment}
+
+counts_df <- data.frame(annotations = annotated_counts$annotations, treatment = annotated_counts$treatment)
+
+n_cells <- counts_df %>%
+  group_by(annotations, treatment) %>%
+  summarise(n = n())
+
+angioII <- n_cells %>% filter(treatment == "angioII")
+control <- n_cells %>% filter(treatment == "control")
+
+angioII_sum <- angioII %>%
+  group_by(annotations) %>%
+  summarise(total_n = sum(n))
+
+control_sum <- control %>%
+  group_by(annotations) %>%
+  summarise(total_n = sum(n))
+
+pie_chart_angio <- ggplot(angioII_sum, aes(x = "", y = total_n, fill = annotations)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  labs(title = "Pie Chart of Cell Counts by Annotations AngioII") +
+  geom_text(aes(label = total_n), color = "white", size=3, position = position_stack(vjust = 0.5)) +
+  theme_void()
+
+pie_chart_control <- ggplot(control_sum, aes(x = "", y = total_n, fill = annotations)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  labs(title = "Pie Chart of Cell Counts by Annotations Control") +
+  geom_text(aes(label = total_n), color = "white", size=3, position = position_stack(vjust = 0.5)) +
+  theme_void()
+
+print(pie_chart_angio)
+print(pie_chart_control)
+
+```
+
+```{r, prepare some data for donut plots for angioII status}
+
+counts_df <- data.frame(annotations = annotated_counts$annotations, treatment = annotated_counts$treatment)
+
+n_cells <- counts_df %>%
+  group_by(annotations, treatment) %>%
+  summarise(n = n())
+
+angioII <- n_cells %>% filter(treatment == "angioII")
+control <- n_cells %>% filter(treatment == "control")
+
+annotations_2 <- c(
+  "VSMC", "VSMC", "VSMC",
+  "VSMC", "Endothelial Cells",
+  "VSMC", "Macrophages", "Endothelial Cells",
+  "VSMC", "Fibroblasts", "Macrophages", "Pericytes", "Adipocytes", "Mesenchymal Cells", "Epithelial Cells")
+
+
+control$annotations_2 <- as.factor(annotations_2)
+angioII$annotations_2 <- as.factor(annotations_2)
+
+angioII_sum_all <- angioII %>%
+  group_by(annotations) %>%
+  summarise(total_n = sum(n))
+
+angioII_sum_combo <- angioII %>%
+  group_by(annotations_2) %>%
+  summarise(total_n = sum(n))
+
+control_sum_all <- control %>%
+  group_by(annotations) %>%
+  summarise(total_n = sum(n))
+
+control_sum_combo <- control %>%
+  group_by(annotations_2) %>%
+  summarise(total_n = sum(n))
+
+angioII_sum_all
+angioII_sum_combo
+
+control_sum_all
+control_sum_combo
+
+```
+
+
+
+```{r, donut plot ggpubr angio}
+
+library(ggpubr)
+library(ggsci)
+
+#angioII_sum_combo
+#labs <- paste0(angioII_sum_combo$annotations_2, " (", angioII_sum_combo$total_n, ")")
+
+chart_ang_combo <- ggdonutchart(angioII_sum_combo, "total_n", label = "total_n",
+  lab.pos = "out", palette = "rickandmorty", fill = "annotations_2", lab.font= c(3, "bold", "black"), orientation = "horizontal", lab.adjust = 0, legend.title = "Cell Type")
+
+chart_ang_combo
+
+
+#labs <- paste0(angioII_sum_combo$annotations_2, " (", angioII_sum_combo$total_n, ")")
+
+angioII_sum_all
+
+chart_ang_all <- ggdonutchart(angioII_sum_all, "total_n", label = "total_n",
+  lab.pos = "in", palette = "rickandmorty", fill = "annotations", lab.font= c(3, "italic", "white"), orientation = "horizontal", lab.adjust = 0, legend.title = "Cell Type")
+
+chart_ang_all
+
+```
+
+
+```{r, donut plot ggpubr control}
+
+library(ggpubr)
+library(ggsci)
+
+
+#labs <- paste0(angioII_sum_combo$annotations_2, " (", angioII_sum_combo$total_n, ")")
+
+chart_ctrl_combo <- ggdonutchart(control_sum_combo, "total_n", label = "total_n",
+  lab.pos = "out", palette = "rickandmorty", fill = "annotations_2", lab.font= c(3, "bold", "black"), orientation = "horizontal", lab.adjust = 0, legend.title = "Cell Type")
+
+chart_ctrl_combo
+
+
+#labs <- paste0(angioII_sum_combo$annotations_2, " (", angioII_sum_combo$total_n, ")")
+
+
+chart_ctrl_all <- ggdonutchart(control_sum_all, "total_n", label = "total_n",
+  lab.pos = "in", palette = "rickandmorty", fill = "annotations", lab.font= c(3, "italic", "white"), orientation = "horizontal", lab.adjust = 0, legend.title = "Cell Type")
+
+chart_ctrl_all
+
+```
+
+
+
+
+```{r}
+
+angioII_sum_all %>%
+  arrange(annotations)
+
+angioII_sum_combo %>%
+  arrange(annotations_2)
+
+```
+
+
+
+
+
+```{r, prepare some data for donut plots for KO status}
+
+counts_df <- data.frame(annotations = annotated_counts$annotations, type = annotated_counts$type)
+
+n_cells <- counts_df %>%
+  group_by(annotations, type) %>%
+  summarise(n = n())
+
+WT <- n_cells %>% filter(type == "WT")
+KO <- n_cells %>% filter(type == "KO")
+
+annotations_2 <- c(
+  "VSMC", "VSMC", "VSMC",
+  "VSMC", "Endothelial Cells",
+  "VSMC", "Macrophages", "Endothelial Cells",
+  "VSMC", "Fibroblasts", "Macrophages", "Pericytes", "Adipocytes", "Mesenchymal Cells", "Epithelial Cells")
+
+
+WT$annotations_2 <- as.factor(annotations_2)
+KO$annotations_2 <- as.factor(annotations_2)
+
+WT_sum_all <- WT %>%
+  group_by(annotations) %>%
+  summarise(total_n = sum(n))
+
+WT_sum_combo <- WT %>%
+  group_by(annotations_2) %>%
+  summarise(total_n = sum(n))
+
+KO_sum_all <- KO %>%
+  group_by(annotations) %>%
+  summarise(total_n = sum(n))
+
+KO_sum_combo <- KO %>%
+  group_by(annotations_2) %>%
+  summarise(total_n = sum(n))
+
+WT_sum_all
+WT_sum_combo
+
+KO_sum_all
+KO_sum_combo
+
+```
+
+
+```{r, donut plot ggpubr WT}
+
+library(ggpubr)
+library(ggsci)
+
+chart_WT_combo <- ggdonutchart(WT_sum_combo, "total_n", label = "total_n",
+  lab.pos = "out", palette = "rickandmorty", fill = "annotations_2", lab.font= c(3, "bold", "black"), orientation = "horizontal", lab.adjust = 0, legend.title = "Cell Type")
+
+chart_WT_combo
+
+chart_WT_all <- ggdonutchart(WT_sum_all, "total_n", label = "total_n",
+  lab.pos = "in", palette = "simpsons", fill = "annotations", lab.font= c(3, "italic", "white"), orientation = "horizontal", lab.adjust = 0, legend.title = "Cell Type")
+
+chart_WT_all
+
+```
+
+```{r, donut plot ggpubr KO}
+
+library(ggpubr)
+library(ggsci)
+
+chart_KO_combo <- ggdonutchart(KO_sum_combo, "total_n", label = "total_n",
+  lab.pos = "out", palette = "rickandmorty", fill = "annotations_2", lab.font= c(3, "bold", "black"), orientation = "horizontal", lab.adjust = 0, legend.title = "Cell Type")
+
+chart_KO_combo
+
+chart_KO_all <- ggdonutchart(KO_sum_all, "total_n", label = "total_n",
+  lab.pos = "in", palette = "simpsons", fill = "annotations", lab.font= c(3, "italic", "white"), orientation = "horizontal", lab.adjust = 0, legend.title = "Cell Type")
+
+chart_KO_all
+
+```
+
+
+
+#DONUT PLOTS BY SAMPLE
+
+```{r, prep data for sample donut plots}
+
+n_cells <- FetchData(annotated_counts, 
+                     vars = c("annotations", "sample")) %>%
+        dplyr::count(annotations, sample)
+
+n_cells <- n_cells %>%
+  group_by(sample) %>%
+  mutate(percentage = n / sum(n) * 100)
+
+angioWT <- n_cells %>% filter(sample == "angioWT")
+angioKO <- n_cells %>% filter(sample == "angioKO")
+ctrlWT <- n_cells %>% filter(sample == "ctrlWT")
+ctrlKO <- n_cells %>% filter(sample == "ctrlKO")
+
+annotations_2 <- c(
+  "VSMC", "VSMC", "VSMC",
+  "VSMC", "Endothelial Cells",
+  "VSMC", "Macrophages", "Endothelial Cells",
+  "VSMC", "Fibroblasts", "Macrophages", "Pericytes", "Adipocytes", "Mesenchymal Cells", "Epithelial Cells")
+
+
+angioWT$annotations_2 <- as.factor(annotations_2)
+angioKO$annotations_2 <- as.factor(annotations_2)
+ctrlWT$annotations_2 <- as.factor(annotations_2)
+ctrlKO$annotations_2 <- as.factor(annotations_2)
+
+
+angioWT <- angioWT %>%
+  group_by(annotations_2) %>%
+  summarise(total_n = sum(n))
+
+angioKO <- angioKO %>%
+  group_by(annotations_2) %>%
+  summarise(total_n = sum(n))
+
+ctrlWT <- ctrlWT %>%
+  group_by(annotations_2) %>%
+  summarise(total_n = sum(n))
+
+ctrlKO <- ctrlKO %>%
+  group_by(annotations_2) %>%
+  summarise(total_n = sum(n))
+
+chart_ctrlKO <- ggdonutchart(ctrlKO, "total_n", label = sprintf("%.1f%%", percentage),
+  lab.pos = "out", palette = "rickandmorty", fill = "annotations_2", lab.font= c(3, "bold", "black"), orientation = "horizontal", lab.adjust = 0, legend.title = "Cell Type")
+
+chart_ctrlKO
+
+```
+
+```{r, donut plots per sample}
+
+# Fetch data and count annotations by sample
+n_cells <- FetchData(annotated_counts, vars = c("annotations", "sample")) %>%
+  dplyr::count(annotations, sample)
+
+# Calculate the percentage of each annotation within each sample
+n_cells <- n_cells %>%
+  group_by(sample) %>%
+  mutate(percentage = n / sum(n) * 100)
+
+# Filter data for each sample
+angioWT <- n_cells %>% filter(sample == "angioWT")
+angioKO <- n_cells %>% filter(sample == "angioKO")
+ctrlWT <- n_cells %>% filter(sample == "ctrlWT")
+ctrlKO <- n_cells %>% filter(sample == "ctrlKO")
+
+annotations_2 <- c(
+  "VSMC", 
+  "VSMC", 
+  "VSMC",
+  "VSMC", 
+  "Endothelial Cells",
+  "VSMC", 
+  "Macrophages", 
+  "Endothelial Cells",
+  "VSMC", 
+  "Fibroblasts", 
+  "Macrophages", 
+  "Pericytes", 
+  "Adipocytes", 
+  "Mesenchymal Cells", 
+  "Epithelial Cells")
+
+# Assign the new annotations
+angioWT$annotations_2 <- as.factor(annotations_2)
+angioKO$annotations_2 <- as.factor(annotations_2)
+ctrlWT$annotations_2 <- as.factor(annotations_2)
+ctrlKO$annotations_2 <- as.factor(annotations_2)
+
+# Summarize data by annotations_2 and calculate percentage
+angioWT <- angioWT %>%
+  group_by(annotations_2) %>%
+  summarise(total_n = sum(n), percentage = sum(percentage))
+
+angioKO <- angioKO %>%
+  group_by(annotations_2) %>%
+  summarise(total_n = sum(n), percentage = sum(percentage))
+
+ctrlWT <- ctrlWT %>%
+  group_by(annotations_2) %>%
+  summarise(total_n = sum(n), percentage = sum(percentage))
+
+ctrlKO <- ctrlKO %>%
+  group_by(annotations_2) %>%
+  summarise(total_n = sum(n), percentage = sum(percentage))
+
+# Create the donut chart with percentage labels for ctrlKO
+chart_ctrlKO <- ggdonutchart(ctrlKO, "total_n",
+  label = paste0(sprintf("%.1f", ctrlKO$percentage), "%"),
+  lab.pos = "out", palette = "rickandmorty", fill = "annotations_2",
+  lab.font = c(3, "bold", "black"), orientation = "horizontal",
+  lab.adjust = 0, legend.title = "Cell Type")
+
+#print(chart_ctrlKO)
+
+plotcolors <- c(
+  "VSMC" = "#1f77b4", "Endothelial Cells" = "#ff7f0e", "Macrophages" = "#2ca02c", 
+  "Fibroblasts" = "#d62728", "Pericytes" = "#9467bd", "Adipocytes" = "#8c564b", 
+  "Mesenchymal Cells" = "#e377c2", "Epithelial Cells" = "#7f7f7f"
+)
+
+plot_donut <- function(data, title, colors) {
+  data$fraction <- data$total_n / sum(data$total_n)
+  data$ymax <- cumsum(data$fraction)
+  data$ymin <- c(0, head(data$ymax, n = -1))
+  data$labelPosition <- (data$ymax + data$ymin) / 2
+  data$label <- paste0(sprintf("%.1f", data$percentage), "%")
+
+  ggplot(data, aes(ymax = ymax, ymin = ymin, xmax = 4, xmin = 3, fill = annotations_2)) +
+    geom_rect() +
+    geom_text(x = 3.5, aes(y = labelPosition, label = label), size = 3, color = "black") +
+    coord_polar(theta = "y") +
+    xlim(c(2, 4)) +
+    theme_void() +
+    theme(legend.title = element_text(size = 10, face = "bold"),
+          legend.text = element_text(size = 8)) +
+    labs(title = title, fill = "Cell Type") +
+    scale_fill_manual(values = colors)
+}
+
+plot_donut(ctrlKO, "Ctrl Glrx KO", plotcolors)
+plot_donut(ctrlWT, "Ctrl WT", plotcolors)
+plot_donut(angioKO, "AngII Glrx KO", plotcolors)
+plot_donut(angioWT, "AngII WT", plotcolors)
+
+```
+
+
+
+
+```{r}
+
+annotations_2 <- c(
+  "VSMC", "VSMC", "VSMC",
+  "VSMC", "Endothelial Cells",
+  "VSMC", "Macrophages", "Endothelial Cells",
+  "VSMC", "Fibroblasts", "Macrophages", "Pericytes", "Adipocytes", "Mesenchymal Cells", "Epithelial Cells")
+
+annotated_counts$annot_group = annotations_2
+
+```
+
+
+```{r}
+
+annotated_counts@meta.data
+
+```
+
+```{r}
+library(ggplot2)
+library(webr)
+library(dplyr)
+
+# Fetch data and count annotations by sample
+n_cells <- FetchData(annotated_counts, vars = c("annotations", "sample")) %>%
+  dplyr::count(annotations, sample)
+
+n_cells
+
+```
+
+```{r, for last set of GOOD donut plots}
+
+# Fetch data and count annotations by sample
+n_cells <- FetchData(annotated_counts, vars = c("annotations", "sample")) %>%
+  dplyr::count(annotations, sample)
+
+# Calculate the percentage of each annotation within each sample
+n_cells <- n_cells %>%
+  group_by(sample) %>%
+  mutate(percentage = n / sum(n) * 100)
+
+#print(n_cells)
+
+# Filter data for each sample
+angioWT <- n_cells %>% filter(sample == "angioWT")
+angioKO <- n_cells %>% filter(sample == "angioKO")
+ctrlWT <- n_cells %>% filter(sample == "ctrlWT")
+ctrlKO <- n_cells %>% filter(sample == "ctrlKO")
+
+#print(ctrlWT)
+
+annotations_2 <- c(
+  "VSMC", 
+  "VSMC", 
+  "VSMC",
+  "VSMC", 
+  "Endothelial Cells",
+  "VSMC", 
+  "Macrophages", 
+  "Endothelial Cells",
+  "VSMC", 
+  "Fibroblasts", 
+  "Macrophages", 
+  "Other", 
+  "Adipocytes", 
+  "Other", 
+  "Other")
+
+annotations_3 <- c(
+  "VSMC I", 
+  "VSMC II", 
+  "VSMC III",
+  "VSMC IV", 
+  "Endothelial Cells I",
+  "VSMC V", 
+  "Macrophages I", 
+  "Endothelial Cells II",
+  "VSMC VI", 
+  "Fibroblasts", 
+  "Macrophages II", 
+  "Pericytes", 
+  "Adipocytes", 
+  "Mesenchymal Cells", 
+  "Epithelial Cells")
+
+# Assign the new annotations
+angioWT$annotations_2 <- as.factor(annotations_2)
+angioKO$annotations_2 <- as.factor(annotations_2)
+ctrlWT$annotations_2 <- as.factor(annotations_2)
+ctrlKO$annotations_2 <- as.factor(annotations_2)
+
+# Assign the new annotations
+angioWT$annotations_3 <- as.factor(annotations_3)
+angioKO$annotations_3 <- as.factor(annotations_3)
+ctrlWT$annotations_3 <- as.factor(annotations_3)
+ctrlKO$annotations_3 <- as.factor(annotations_3)
+
+
+angioWT = angioWT %>% group_by(annotations, annotations_2, annotations_3) %>% summarise(total_n = sum(n), percentage = sum(percentage))
+angioKO = angioKO %>% group_by(annotations, annotations_2, annotations_3) %>% summarise(total_n = sum(n), percentage = sum(percentage))
+ctrlWT = ctrlWT %>% group_by(annotations, annotations_2, annotations_3) %>% summarise(total_n = sum(n), percentage = sum(percentage))
+ctrlKO = ctrlKO %>% group_by(annotations, annotations_2, annotations_3) %>% summarise(total_n = sum(n), percentage = sum(percentage))
+
+print(ctrlWT)
+
+```
+
+
+```{r, donut plot all cell types}
+
+#pdf(file = "ctrlKO_doubledonut.pdf", width = 14, height = 10)
+
+plot <- PieDonut(ctrlKO, aes(annotations_2, annotations, count=total_n), title = "Glrx KO", ratioByGroup = F, labelposition = 1, pieLabelSize = 2, donutLabelSize = 3, showPieName = F, r0 = 0.5, r1 = 0.9, showRatioThreshold = 0.0)
+
+#dev.off()
+plot
+
+```
+
+```{r, donut plot with cells < 2% removed}
+
+pdf(file = "ctrlKO_doubledonut_small.pdf", width = 14, height = 10)
+
+plot <- PieDonut(ctrlKO, aes(annotations_2, annotations_3, count=total_n), title = "Glrx KO", ratioByGroup = F, labelposition = 1, pieLabelSize = 2, donutLabelSize = 3, showPieName = F, r0 = 0.5, r1 = 0.9, showRatioThreshold = 0.0, explode = 5, explodePos = 0.3, explodeDonut = T, start = 5.8)
+
+dev.off()
+
+```
+
+
+```{r, cell type proportion plots by sample-- incuding macrophages II}
+
+#non_small <- subset(x = annotated_counts, idents = c("VSMC I", "VSMC II", "VSMC III", "VSMC IV", "VSMC V", "VSMC VI", "Endothelial Cells I", "Endothelial Cells II", "Macrophages I", "Macrophages II", "Fibroblasts"))
+
+n_cells <- FetchData(annotated_counts, 
+                     vars = c("annotations", "sample")) %>%
+        dplyr::count(annotations, sample)
+
+n_cells <- n_cells %>%
+  group_by(sample) %>%
+  mutate(percentage = n / sum(n) * 100)
+
+n_cells <- n_cells %>%
+  filter(annotations %in% c("VSMC I", "VSMC II", "VSMC III", "VSMC IV", 
+                             "VSMC V", "VSMC VI", "Endothelial Cells I", 
+                             "Endothelial Cells II", "Macrophages I", 
+                             "Macrophages II", "Fibroblasts"))
+
+
+ggplot(n_cells, aes(x=annotations, y=n, fill= sample)) +
+    geom_bar(position=position_dodge(), stat="identity") +
+    geom_text(aes(label=n), vjust = -.2, position=position_dodge(1), size = 3) +
+    labs(x = "Identity", y = "Number of Cells", title = "Number of Cells by Identity and Sample") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#stacked plot
+ggplot(n_cells, aes(x = annotations, y = n, fill = sample)) +
+  geom_bar(stat = "identity", position = "stack") +  
+  geom_text(aes(label = sprintf("%.1f%%", percentage)), vjust = -0.2, position = position_stack(vjust = 0.2), size = 2, color = "black") +
+  labs(x = "Identity", y = "Number of Cells", title = "Number of Cells by Identity and Sample") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r, cell type proportion plots by sample-- small clusters}
+
+#small <- subset(x = annotated_counts, idents = c("Pericytes", "Mesenchymal Cells", "Adipocytes", "Epithelial Cells"))
+
+n_cells <- FetchData(annotated_counts, 
+                     vars = c("annotations", "sample")) %>%
+        dplyr::count(annotations, sample)
+
+n_cells <- n_cells %>%
+  group_by(sample) %>%
+  mutate(percentage = n / sum(n) * 100)
+
+n_cells <- n_cells %>%
+  filter(annotations %in% c("Pericytes", "Mesenchymal Cells", "Adipocytes", "Epithelial Cells"))
+
+
+ggplot(n_cells, aes(x=annotations, y=n, fill= sample)) +
+    geom_bar(position=position_dodge(), stat="identity") +
+    geom_text(aes(label=n), vjust = -.2, position=position_dodge(1), size = 3) +
+    labs(x = "Identity", y = "Number of Cells", title = "Number of Cells by Identity and Sample") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#stacked plot
+ggplot(n_cells, aes(x = annotations, y = n, fill = sample)) +
+  geom_bar(stat = "identity", position = "stack") +  
+  geom_text(aes(label = sprintf("%.1f%%", percentage)), vjust = -0.2, position = position_stack(vjust = 0.2), size = 3, color = "black") +
+  labs(x = "Identity", y = "Number of Cells", title = "Number of Cells by Identity and Sample") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+

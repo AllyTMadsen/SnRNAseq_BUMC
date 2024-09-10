@@ -1,0 +1,95 @@
+## load necessary packages
+
+```{r load_packages, echo=FALSE, message=FALSE, warning=FALSE}
+library(patchwork)
+library(tidyverse)
+library(SeuratObject)
+library(Seurat)
+library(SoupX)
+library(DropletUtils)
+library(ggplot2)
+#library(DoubletFinder)
+library(knitr)
+
+```
+
+
+
+```{r, for sample angio KO}
+
+#CHANGE THE PATHS AND OUTFILE NAME, RUN FOR ALL 4 SAMPLES
+
+ctrl_WT_raw <- Read10X_h5("/projectnb/setagrp/atmadsen/Seta_aorticAneurysm_snRNA/results/TY_SF_WT/outs/raw_feature_bc_matrix.h5")
+
+ctrl_WT_filt <- Read10X_h5("/projectnb/setagrp/atmadsen/Seta_aorticAneurysm_snRNA/results/TY_SF_WT/outs/filtered_feature_bc_matrix.h5")
+
+ctrl_WT_sc <- SoupChannel(ctrl_WT_raw, ctrl_WT_filt)
+
+ctrl_WT_seurat <- CreateSeuratObject(counts = ctrl_WT_filt, project = "Control_WT")
+
+```
+
+
+
+```{r, check suerat and sc objs}
+#dont run this, HUGE output
+ctrl_WT_sc
+ctrl_WT_seurat
+
+```
+
+```{r, quick cluster w/ seurat, message = False, warning = False}
+
+ctrl_WT_seurat    <- SCTransform(ctrl_WT_seurat, verbose = F)
+ctrl_WT_seurat    <- RunPCA(ctrl_WT_seurat, verbose = F)
+ctrl_WT_seurat    <- RunUMAP(ctrl_WT_seurat, dims = 1:15, verbose = F)
+ctrl_WT_seurat    <- FindNeighbors(ctrl_WT_seurat, dims = 1:15, verbose = F)
+ctrl_WT_seurat    <- FindClusters(ctrl_WT_seurat, verbose = T)
+
+```
+
+
+```{r, add clusters to channel}
+
+meta    <- ctrl_WT_seurat@meta.data
+umap    <- ctrl_WT_seurat@reductions$umap@cell.embeddings
+ctrl_WT_sc  <- setClusters(ctrl_WT_sc, setNames(meta$seurat_clusters, rownames(meta)))
+ctrl_WT_sc  <- setDR(ctrl_WT_sc, umap)
+head(meta)
+
+```
+
+
+```{r, calc ambient mRNA profiles}
+
+ctrl_WT_sc  <- autoEstCont(ctrl_WT_sc)
+
+```
+
+
+```{r, print the genes with highest background expression}
+
+head(ctrl_WT_sc$soupProfile[order(ctrl_WT_sc$soupProfile$est, decreasing = T), ], n = 20)
+
+```
+
+
+```{r, output the new filtered matrix}
+
+#rounds to whole number ints
+adj.matrix  <- adjustCounts(ctrl_WT_sc, roundToInt = T)
+
+DropletUtils:::write10xCounts("soupX_ctrl_WT_filt", adj.matrix)
+
+```
+
+```{r, plot the soup change}
+
+gg = plotChangeMap(ctrl_WT_sc, ajd.matrix)
+print(gg)
+
+```
+
+
+
+

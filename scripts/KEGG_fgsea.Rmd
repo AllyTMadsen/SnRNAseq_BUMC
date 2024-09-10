@@ -1,0 +1,241 @@
+---
+title: "KEGG_fgsea.Rmd"
+output: html_document
+date: "2024-08-05"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, convert the genes names with biomart}
+
+# Basic function to convert mouse to human gene names
+convertMouseGeneList <- function(x){
+require("biomaRt")
+  
+human = useMart("ensembl", dataset = "hsapiens_gene_ensembl", host = "https://dec2021.archive.ensembl.org/")
+mouse = useMart("ensembl", dataset = "mmusculus_gene_ensembl", host = "https://dec2021.archive.ensembl.org/")
+
+genesV2 = getLDS(attributes = c("mgi_symbol"), filters = "mgi_symbol", values = x , mart = mouse, attributesL = c("hgnc_symbol"), martL = human, uniqueRows=T)
+
+return(genesV2)
+}
+
+```
+
+
+```{r, extract the gene names from the ranked lists}
+
+#file convention: ranked_list_VSMCVI_GlrxKOvAngioGlrxKO.csv
+
+files <- c("ranked_list_Macrophages_II_GlrxKOvAngIIGlrxKO.csv",
+          "ranked_list_Macrophages_II_WTvGlrxKO.csv",
+          "ranked_list_Macrophages_II_AngIIWTvAngIIGlrxKO.csv",
+          "ranked_list_Macrophages_II_WTvAngIIWT.csv")
+
+for (file in files) {
+  data <-  read_csv(file)
+  genes <- data['Gene']
+  write_csv(genes, paste0("genesONLY_", file))
+}
+```
+
+
+
+```{r, create R vars for gene mouse lists}
+
+files <- c("genesONLY_ranked_list_Macrophages_II_GlrxKOvAngIIGlrxKO.csv",
+          "genesONLY_ranked_list_Macrophages_II_WTvGlrxKO.csv",
+          "genesONLY_ranked_list_Macrophages_II_AngIIWTvAngIIGlrxKO.csv",
+          "genesONLY_ranked_list_Macrophages_II_WTvAngIIWT.csv")
+
+for (file in files) {
+  genes <- read_csv(file)
+  assign(paste0("Mouse", file), genes)
+}
+
+```
+
+
+```{r, create mapping for mouse to human orthologs}
+
+names <- c("MousegenesONLY_ranked_list_Macrophages_II_GlrxKOvAngIIGlrxKO.csv",
+          "MousegenesONLY_ranked_list_Macrophages_II_WTvGlrxKO.csv",
+          "MousegenesONLY_ranked_list_Macrophages_II_AngIIWTvAngIIGlrxKO.csv",
+          "MousegenesONLY_ranked_list_Macrophages_II_WTvAngIIWT.csv")
+
+for (name in names) {
+  mouse_genes_variable_name <- name
+  orthologs <- convertMouseGeneList(get(mouse_genes_variable_name))
+  i <- sub("MousegenesONLY_ranked_list_", "", name)
+  write_csv(orthologs, paste0("humanOrtho_", i))
+}
+
+```
+
+
+
+```{r, make ranked lists for GSEA}
+
+files <- c("Macrophages_II_GlrxKOvAngIIGlrxKO",
+          "Macrophages_II_WTvGlrxKO",
+          "Macrophages_II_AngIIWTvAngIIGlrxKO",
+          "Macrophages_II_WTvAngIIWT")
+
+for (file in files) {
+  ranked_file = read_csv(paste0("ranked_list_", file, ".csv"))
+  ortho_file = read_csv(paste0("humanOrtho_", file, ".csv"))
+
+  ranked_ortho = merge(ranked_file, ortho_file, by.x = "Gene", by.y = "MGI.symbol")
+  
+  ranked_ortho <- ranked_ortho %>% dplyr::select(-Gene) %>% dplyr::rename(Gene = HGNC.symbol) %>% dplyr::select(Gene, everything()) 
+  
+  ranked_ortho <- ranked_ortho %>% dplyr::arrange(desc(Ranking))
+  
+  print(ranked_ortho)
+  write_csv(ranked_ortho, paste0("ranked_list_GSEA_", file, ".csv"))
+}
+
+```
+
+
+
+
+```{r, prepare gmt file for fgsea}
+
+gmt_KEGG <- "/projectnb/setagrp/atmadsen/Seta_aorticAneurysm_snRNA/refs/c2.cp.kegg_medicus.v2023.2.Hs.symbols.gmt"
+
+fg_KEGG <- gmtPathways(gmt_KEGG)
+
+str(head(fg_KEGG))
+
+```
+
+```{r, read in ranked lists}
+
+ranked_lists <- list()
+
+files <- c("ranked_list_GSEA_Macrophages_II_GlrxKOvAngIIGlrxKO.csv",
+          "ranked_list_GSEA_Macrophages_II_WTvGlrxKO.csv",
+          "ranked_list_GSEA_Macrophages_II_AngIIWTvAngIIGlrxKO.csv",
+          "ranked_list_GSEA_Macrophages_II_WTvAngIIWT.csv")
+
+for (file in files) {
+  
+  fg_stats <- read.csv(file, header=TRUE, colClasses = c("character", "numeric"))
+  
+  i <- sub("ranked_list_GSEA_", "", file)
+  
+  ranked_lists[[i]] <- setNames(fg_stats$Ranking, fg_stats$Gene)
+}
+
+str(ranked_lists)
+
+```
+
+
+
+```{r, run fgsea in a loop for all bio comparison groups, message=FALSE, warning=FALSE}
+
+fgsea_KEGG <- list()
+
+labs <- c("Macrophages_II_GlrxKOvAngIIGlrxKO.csv",
+          "Macrophages_II_WTvGlrxKO.csv",
+          "Macrophages_II_AngIIWTvAngIIGlrxKO.csv",
+          "Macrophages_II_WTvAngIIWT.csv")
+
+for (i in labs) {
+  ranked_list <- ranked_lists[[i]]
+  
+  fgsea_result <- fgsea(pathways = fg_KEGG, 
+                        stats    = ranked_list,
+                        minSize  = 5,
+                        maxSize = 500)
+  
+  fgsea_KEGG[[paste0("fgseaKEGG_", i)]] <- fgsea_result
+}
+
+print(fgsea_KEGG)
+
+```
+
+
+
+```{r, check fgsea results}
+
+labs <- c("Macrophages_II_GlrxKOvAngIIGlrxKO.csv",
+          "Macrophages_II_WTvGlrxKO.csv",
+          "Macrophages_II_AngIIWTvAngIIGlrxKO.csv",
+          "Macrophages_II_WTvAngIIWT.csv")
+
+for (i in labs) {
+  
+  filtered <- fgsea_KEGG[[paste0("fgseaKEGG_", i)]] %>% dplyr::filter(padj <= 0.25)
+  
+  if (nrow(filtered) > 0) {
+    # Prepare the data for plotting
+    data <- filtered %>%
+      as_tibble() %>%
+      arrange(desc(NES))
+    
+    #restrict to top 30 pathways
+    data_top <- head(data, n = 15)
+    data_bottom <- tail(data, n = 15)
+    data <- rbind(data_top, data_bottom)
+    
+    # Create the plot
+    plot <- ggplot(data, aes(reorder(pathway, NES), NES)) +
+      geom_col(aes(fill = NES > 0)) +
+      scale_fill_manual(values = c("TRUE" = "red", "FALSE" = "blue"), 
+                        labels = c("TRUE" = "Upregulated", "FALSE" = "Downregulated")) +
+      coord_flip() +
+      labs(x="Pathway", y="Normalized Enrichment Score",
+           fill = "NES",
+           title=paste("Fgsea KEGG Pathways -", sub(".csv", "", i))) + 
+      theme_minimal()
+    
+    # Save the plot with a dynamic file name
+    ggsave(paste0("KEGG_fgsea", sub(".csv", "", i), ".png"), plot, width = 16, height = 6, units = "in")
+  } else {
+    print(paste("No significant pathways found for", i))
+  }
+}
+
+
+```
+
+
+
+```{r}
+library(enrichplot)
+
+#would need to be an enrichResult object
+
+labs <- c("Macrophages_II_GlrxKOvAngIIGlrxKO.csv",
+          "Macrophages_II_WTvGlrxKO.csv",
+          "Macrophages_II_AngIIWTvAngIIGlrxKO.csv",
+          "Macrophages_II_WTvAngIIWT.csv")
+
+for (i in labs){
+  
+  filtered <- fgsea_KEGG[[paste0("fgseaKEGG_", i)]] %>% dplyr::filter(padj <= 0.25)
+  
+  if (nrow(filtered) > 0) {
+    # Prepare the data for plotting
+    data <- filtered %>% arrange(desc(NES))
+    print(data)
+    
+    #plot <- barplot(data, showCategory=20) 
+    #print(plot)
+    
+  } else {
+    print(paste("No significant pathways found for", i))
+  }
+}
+  
+
+```
+
+

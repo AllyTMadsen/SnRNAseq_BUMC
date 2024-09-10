@@ -1,0 +1,338 @@
+---
+title: "snRNAseq_seurat"
+output: html_document
+date: "2024-08-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load_packages, echo=FALSE, message=FALSE, warning=FALSE}
+library(patchwork)
+library(tidyverse)
+library(SeuratObject)
+library(Seurat)  
+library(celldex)
+library(dplyr)
+library(stringr)
+library(devtools)
+library(ggplot2)
+library(ggpubr)   
+library(cowplot)  
+library(SeuratWrappers)
+library(fgsea)             
+library(data.table)
+library(gridExtra)
+library(grid)
+library(kableExtra)
+library(openxlsx)
+library(SingleCellExperiment)
+library(Matrix)
+library(reshape2)
+library(S4Vectors)
+library(pheatmap)
+library(apeglm)
+library(png)
+library(DESeq2)
+library(RColorBrewer)
+```
+
+
+```{r, run this cell to create seurat objs from files}
+
+counts_angio_KO <- readRDS(file = "/projectnb/setagrp/atmadsen/Seta_aorticAneurysm_snRNA/samples/counts_angio_KO_Seuratobject.rds")
+counts_angio_WT <- readRDS(file = "/projectnb/setagrp/atmadsen/Seta_aorticAneurysm_snRNA/samples/counts_angio_WT_Seuratobject.rds")
+counts_ctrl_KO <- readRDS(file = "/projectnb/setagrp/atmadsen/Seta_aorticAneurysm_snRNA/samples/counts_ctrl_KO_Seuratobject.rds")
+counts_ctrl_WT <- readRDS(file = "/projectnb/setagrp/atmadsen/Seta_aorticAneurysm_snRNA/samples/counts_ctrl_WT_Seuratobject.rds")
+
+```
+
+
+```{r, adding cols to metadata}
+#add descriptive cols for treatment
+counts_angio_KO@meta.data$treatment <- "angioII"
+counts_angio_WT@meta.data$treatment <- "angioII"
+counts_ctrl_KO@meta.data$treatment <- "control"
+counts_ctrl_WT@meta.data$treatment <- "control"
+
+#col for WT vs KO Sirt1
+counts_angio_KO@meta.data$type <- "KO"
+counts_angio_WT@meta.data$type <- "WT"
+counts_ctrl_KO@meta.data$type <- "KO"
+counts_ctrl_WT@meta.data$type <- "WT"
+
+#col for SAMPLE
+counts_angio_KO@meta.data$sample <- "angioKO"
+counts_angio_WT@meta.data$sample <- "angioWT"
+counts_ctrl_KO@meta.data$sample <- "ctrlKO"
+counts_ctrl_WT@meta.data$sample <- "ctrlWT"
+  
+```
+
+
+```{r, merge the datasets}
+#merge the seurat objects
+
+counts_mat_type <- merge(counts_ctrl_WT, y = c(counts_ctrl_KO, counts_angio_WT, counts_angio_KO), add.cell.ids = c("ctrlWT", "ctrlKO", "angWT", "angKO"), project = "AA_snRNA")
+
+```
+
+
+```{r, initial data filtering}
+
+#do some initial filtering, thresholds taken from published literature
+counts_mat_type <- subset(counts_mat_type, subset = nFeature_RNA > 150 & nFeature_RNA < 5500 & percent.mt < 10)
+
+```
+
+
+```{r}
+counts_mat_type
+```
+
+
+
+```{r Join layers merged matrix}
+
+counts_mat_type[["RNA"]] <- JoinLayers(counts_mat_type[["RNA"]])
+Layers(counts_mat_type)
+
+```
+
+
+```{r, split levels of combined data}
+
+#split by angioII treatment
+
+counts_mat_type[["RNA"]] <- split(counts_mat_type[["RNA"]], f = counts_mat_type$treatment)
+
+
+```
+
+
+```{r}
+counts_mat_type
+```
+
+
+```{r, standard processing w/o integration, message=FALSE}
+
+# run standard analysis workflow
+counts_mat_type <- NormalizeData(counts_mat_type)
+counts_mat_type <- FindVariableFeatures(counts_mat_type)
+counts_mat_type <- ScaleData(counts_mat_type)
+counts_mat_type <- RunPCA(counts_mat_type)
+
+```
+
+
+```{r}
+counts_mat_type
+```
+
+
+```{r, elbow plot for PCA selection}
+
+ElbowPlot(counts_mat_type)
+
+```
+
+
+```{r, preliminary clustering, message=FALSE}
+
+counts_mat_type <- FindNeighbors(counts_mat_type, dims = 1:20, reduction = "pca")
+counts_mat_type <- FindClusters(counts_mat_type, resolution = 0.6, cluster.name = "unintegrated_clusters")
+
+```
+
+
+```{r, plot prelim clusters, message=FALSE}
+
+counts_mat_type <- RunUMAP(counts_mat_type, dims = 1:20, reduction = "pca", reduction.name = "umap.unintegrated")
+
+plot2 <- DimPlot(counts_mat_type, reduction = "umap.unintegrated", group.by = c("treatment", "seurat_clusters"))
+plot2
+
+```
+
+
+```{r}
+counts_mat_type
+```
+
+
+```{r, cluster with integration}
+
+counts_mat_type <- IntegrateLayers(object = counts_mat_type, method = CCAIntegration, orig.reduction = "pca", new.reduction = "integrated.cca",
+    verbose = FALSE)
+
+```
+
+
+```{r}
+counts_mat_type
+```
+
+
+```{r}
+
+# re-join layers after integration
+counts_mat_type[["RNA"]] <- JoinLayers(counts_mat_type[["RNA"]])
+
+counts_mat_type <- FindNeighbors(counts_mat_type, reduction = "integrated.cca", dims = 1:20)
+counts_mat_type <- FindClusters(counts_mat_type, resolution = 0.6)
+
+```
+
+
+
+```{r}
+counts_mat_type
+```
+
+
+```{r, make integrated UMAP}
+
+counts_mat_type <- RunUMAP(counts_mat_type, dims = 1:20, reduction = "integrated.cca")
+DimPlot(counts_mat_type, reduction = "umap", group.by = c("treatment", "seurat_annotations"))
+
+```
+
+
+```{r, view conditions colored by cluster}
+
+DimPlot(counts_mat_type, reduction = "umap", split.by = "treatment")
+
+```
+
+
+```{r, find marker genes}
+
+# find markers for every cluster compared to all remaining cells, report only the positive ones
+counts_mat_type.markers <- FindAllMarkers(object = counts_mat_type, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+
+counts_mat_type.markers %>% group_by(cluster) %>% top_n(n = 5, wt = avg_log2FC)
+
+counts_mat_type.markers
+
+```
+
+
+```{r, get all markers for cluster profiler ranked lists}
+
+counts_mat_type.AllMarkers <- counts_mat_type.markers %>% group_by(cluster)
+
+all_clusters <- split(counts_mat_type.AllMarkers, counts_mat_type.AllMarkers$cluster)   #for cluster profiler rmd and heatmaps by cluster
+
+names(all_clusters)
+
+all_clusters$`1`
+
+```
+
+
+```{r, ID top markers}
+
+# identify top markers
+top5_noMt <- counts_mat_type.markers %>% group_by(cluster) %>% top_n(n = 5, wt = avg_log2FC)
+top10_noMt <- counts_mat_type.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC)
+top20_noMT <- counts_mat_type.markers %>% group_by(cluster) %>% top_n(n = 20, wt = avg_log2FC)
+top50_noMT <- counts_mat_type.markers %>% group_by(cluster) %>% top_n(n = 50, wt = avg_log2FC)
+top100_noMt <- counts_mat_type.markers %>% group_by(cluster) %>% top_n(n = 100, wt = avg_log2FC)
+
+```
+
+
+```{r, dot plot for top 5 genes per cluster}
+
+top5 <- counts_mat_type.markers %>% group_by(cluster) %>% top_n(n = 5, wt = avg_log2FC)
+
+top5_unique <- unique(unlist(top5_noMt$gene))
+
+Dotplot_top5 <- DotPlot(object = counts_mat_type, features = top5_unique)
+Dotplot_top5 <- Dotplot_top5 + theme(axis.text.x = element_text(angle = 90, siz = 5,hjust = 1))
+
+Dotplot_top5
+
+```
+
+
+```{r, dot plot for top 10 genes per cluster}
+
+top10 <- counts_mat_type.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC)
+
+top10_unique <- unique(unlist(top10_noMt$gene))
+
+Dotplot_top10 <- DotPlot(object = counts_mat_type, features = top10_unique)
+Dotplot_top10 <- Dotplot_top10 + theme(axis.text.x = element_text(angle = 90, siz = 3,hjust = 1))
+
+Dotplot_top10
+
+```
+
+
+```{r, dot plot for top 3 lineage markers per cluster}
+
+lin_markers <- c("Myocd", "Adcy5", "Smtn", "Pde4dip", "Myh11", "Tagln", "Actn2", 
+                 "Nox4", "Gucy1a1", "Lyz2",
+                 "Col1a1", "Actg1", "Nos3", "Cdh5", "Tie1",
+                 "Col27a1", "Nav3", "Pde1a", "Cd84", "Bmp6", "Pecam1",
+                 "Vwf", "Agtr1b", "Col19a1", "Kcnq5", "Col14a1", "Pdgfra", "Dcn", "Mcr1",
+                 "Adgre1", "Csf1r", "Kcnip4", "Cspg4", "Pdgfrb", "Pck1", "Pparg", "Fasn",
+                 "Ndc80", "Cd44", "Cspp1", "Krt19", "Msln", "Wt1"
+                 )
+
+
+Dotplot_linM <- DotPlot(object = counts_mat_type, features = lin_markers)
+Dotplot_linM <- Dotplot_linM + theme(axis.text.x = element_text(angle = 90, siz = 5,hjust = 1))
+
+Dotplot_linM
+
+```
+
+
+```{r, rename ID'd clusters}
+
+# renaming clusters after identification
+counts_mat_type_annotated <- RenameIdents(object = counts_mat_type,  
+                           "0"="VSMC I", 
+                           "1"="VSMC II", 
+                           "2"="VSMC III", 
+                           "3"="VSMC IV", 
+                           "4"="Endothelial Cells I", 
+                           "5"="VSMC V", 
+                           "6"="Macrophages I",
+                           "7"="Endothelial Cells II",
+                           "8"="VSMC VI",
+                           "9"="Fibroblasts",
+                           "10"="Macrophages II",
+                           "11"="Pericytes",
+                           "12"="Adipocytes",
+                           "13"="Mesenchymal Cells",
+                           "14"="Epithelial Cells"
+                           )
+
+```
+
+
+```{r, plot the new clusters}
+
+UMAP_annotated <- DimPlot(counts_mat_type_annotated, reduction = "umap", label = TRUE, pt.size = 0.5, label.size = 2, repel=TRUE)
+
+UMAP_annotated
+
+```
+
+
+```{r, create RDS obj for annotated suerat obj}
+
+#counts_mat_type_annotated@meta.data
+
+saveRDS(counts_mat_type_annotated, file = "Annotated_Seuratobject.rds")
+
+```
+
+
+
+
