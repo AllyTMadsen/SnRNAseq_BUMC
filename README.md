@@ -1,0 +1,13 @@
+# Single Nuclei RNAseq Analysis of Cell Type Heterogeneity and Gene Expression in Murine Aortic Aneurysm Models
+
+#### Project Overview:
+
+This project will focus on single nuclei RNA Seq analysis from aortas across four different biological conditions: (1) wild type (WT) mice, (2) mice with whole body Glrx deletion (GlrxKO), and (3) angiotensin II-treated WT and (4) angII-treated GlrxKO mice with ApoE null genetic background (angiotensin II is a hypertensive agent used to induce aortic aneurysm in ApoE null mice) to explore the cell type heterogeneity and variable gene expression between disease and control states.  
+The goal of this research is to further elucidate the cell type variability, potential driver genes, and biological pathways active in aortic aneurysms and the effect of Glrx deletion on those biological pathways.  By examining cell type differences between aortic aneurysms and healthy controls, we can better predict accurate therapeutic targets for non-surgical interventions to treat aortic aneurysms, for which there are currently none.  
+Further research into the specific molecular mechanisms involving SirT1 and Glrx may also offer valuable insights into understanding the mechanisms by which rOPTMs and oxidative stress cause smooth muscle dysfunction and extracellular matrix degradation in the aorta.
+
+#### Bioinformatics Analysis: 
+
+Raw single nuclei RNA seq data produced by the Seta Lab was supplied for cell type clustering and gene expression analysis.  Initial alignment, filtering, barcode counting, UMI counting, and gene expression estimation for each sample was performed using the Cell Ranger software package according to the 10× Genomics documentation (Zhang et al., 2017).  Downstream data processing and visualization took place primarily using the Seurat R package (Hao et al., 2023).  Data quality control will be performed per sample to determine total gene counts per cell and the percentage of mitochondrial genes. Cells that contain a high percentage of mitochondrial genes or low gene counts will be removed from downstream analysis.  Ambient mRNA detection and removal was performed with SoupX.  
+Dimensionality reduction was applied at several points throughout the analysis, including selection of variable genes, PCA analysis, and uniform manifold approximation and projection (UMAP).  
+Clustering by cell type will then be performed using a Louvain Graph.  A Wilcoxon rank sum test and Bonferroni p-value correction was applied to identify marker genes in each cluster.  Differentially expressed genes will be filtered based on log fold change and adjusted P-value. Cluster-level gene set enrichment and KEGG pathway analysis was completed using R package fgsea.  
