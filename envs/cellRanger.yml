@@ -1,0 +1,7 @@
+channels:
+- conda-forge
+- bioconda
+
+dependencies:
+- cellranger=7.2.0
+- bcl2fastq=2.20
